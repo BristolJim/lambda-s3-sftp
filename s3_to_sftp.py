@@ -19,6 +19,7 @@ Optional env vars
     SSH_FILENAME - used as a mask for the remote filename. Supports three
         string replacement vars - {bucket}, {key}, {current_date}. Bucket
         and key refer to the uploaded S3 file. Current date is in ISO format.
+    S3_KEY_PREFIX - string value to be removed from the remote filename
 
 """
 import datetime
@@ -46,7 +47,8 @@ SSH_PORT = int(os.getenv('SSH_PORT', 22))
 SSH_DIR = os.getenv('SSH_DIR')
 # filename mask used for the remote file
 SSH_FILENAME = os.getenv('SSH_FILENAME', 'data_{current_date}')
-
+# S3_KEY_PREFIX - string value to be removed from the remote filename
+S3_KEY_PREFIX = os.getenv('S3_KEY_PREFIX', '')
 
 def on_trigger_event(event, context):
     """
@@ -96,7 +98,7 @@ def on_trigger_event(event, context):
 
     with transport:
         for s3_file in s3_files(event):
-            filename = sftp_filename(SSH_FILENAME, s3_file)
+            filename = sftp_filename(SSH_FILENAME, S3_KEY_PREFIX, s3_file)
             bucket = s3_file.bucket_name
             contents = ''
             try:
@@ -163,14 +165,16 @@ def s3_files(event):
             logger.warning(f"S3-SFTP: Ignoring invalid event: { record }")
 
 
-def sftp_filename(file_mask, s3_file):
+def sftp_filename(file_mask, prefix, s3_file):
     """Create destination SFTP filename."""
+    if file_mask == '':
+        logger.warning(f"S3-SFTP: Empty value for SSH_FILENAME will result in a blank SFTP filename")
+
     return file_mask.format(
         bucket=s3_file.bucket_name,
         key=s3_file.key.replace("_000", ""),
         current_date=datetime.date.today().isoformat()
-    )
-
+    ).replace(prefix, "")
 
 def transfer_file(sftp_client, s3_file, filename):
     """
@@ -181,7 +185,7 @@ def transfer_file(sftp_client, s3_file, filename):
         s3_file: boto3.Object representing the S3 file
         filename: string, the remote filename to use
 
-    Returns a 2-tuple containing the name of the remote file as transferred,
+        Returns a 2-tuple containing the name of the remote file as transferred,
         and any status message to be written to the archive file.
 
     """
